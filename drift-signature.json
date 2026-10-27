@@ -1,16 +1,17 @@
 {
   "version": 1,
   "files": {
-    "README.md": "4320b91facddf9ef9b7611e6d3388f9211d0b0b02ed0e00cd053f2155e75d3c5",
-    "background.js": "4faf60e12248fab00fae6dd5131ae297e6ba8abf7db0966c6ed0f3f3f7d9df61",
-    "content.js": "1f08bb6e366cd10cfa1b0ab595ea1cdc9c70043f72f71ee3ee149e0704630bc5",
+    "README.md": "e7c26413dff32576076aff59a16935e8310ef5177c540dd499317231e96d58db",
+    "background.js": "82febd31a171b7884242eec832ecb953a0c62acf1e50d7d2288059901bec0ad4",
+    "content.js": "b310496670a67fa24adf696f6f80feb064a65ede0668fce85a3e186746719cb8",
     "icon.svg": "d2c2657b7ce04bf6ffe2f6d6080e362184cf09c82852e92c58cba4bc58437a58",
-    "page.css": "dd8ca7146fd5158785f475bcad33a2f59b1f3467b93fbcc24a6b61aef28a45ad",
+    "package.json": "77f74f29ab09055a4c5b34cd87c11829ea36706d61d52c2d8b648bed95a46458",
+    "page.css": "383a74e079a2cd94af5e7bc5bfbdfd18d8d79707784c3c64e287d3e65ae23105",
     "page.html": "1c5e6d0b42d12d361c5aa7fc947afb06dcafc4831ba6515d9e32c2bf66a05b28",
-    "page.js": "485667907f2cad627f2af1e9489dfd2c8f8da68ff214aeaa3ce1e347c17180ed",
+    "page.js": "b9a13f0e81dc1396d7dca00f0c6fe7fdb17a18b98ad29af0d2bb5186f8d81476",
     "plugin.json": "67d5c8ea5915c28454bbc2e5a253cbcc1f571d9fe3dbc1d40f81c5e76fef0794",
     "settings.svg": "cb7060c961c8733cfdbd09b62f00be036c406d59bd353668cb1fff1b6afb9529",
     "toggle.svg": "68faa077e762feed4cde1ea2a39949bc82264a291eda1acf28dba49f8fb7d799"
   },
-  "signature": "k2+yEEKzXOMyP9WiJbv0WyXE6edkes9uOdZMO2aweRjd3t9HGxbILOQUjqBSfUxcL3L808/EmbOyILbUEG6MAQ=="
+  "signature": "DeyIOdHTL0WpDwLZpG7ETZFfSXDFgP7Hc/cRl26OfAv0FyTsUKP/jymvHQrBNeTnArVoLr4ANQ/JwWTYZNJRAA=="
 }
