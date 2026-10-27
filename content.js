@@ -12,7 +12,7 @@ var INSTANCE_KEY = Symbol.for("drift-dark.instance");
 var DARK_LUMA = 0.4; // a background darker than this counts as dark
 var SOFT_CANVAS_LUMA = 0.07; // what the default canvas looks like under color-scheme: dark
 var MODES = ["auto", "soft", "invert"];
-var DEFAULTS = { enabled: true, mode: "auto", brightness: 100, contrast: 90, excluded: false };
+var DEFAULTS = { enabled: true, mode: "auto", brightness: 100, contrast: 90, excluded: false, system: false };
 var HTML_TYPES = ["text/html", "application/xhtml+xml", "text/plain"];
 var HINT_KEY = "drift-dark-hint";
 var FREEZE_CSS = "*,*::before,*::after{transition:none !important}";
@@ -25,7 +25,8 @@ var DARK_BLOCK_LUMA = 0.25; // an element background darker than this is already
 var LATE_SCANS_MS = [1500, 5000]; // content that arrives after the first screen
 var SCAN_CHUNK = 300;
 var SCAN_MAX = 6000;
-var MEDIA_SELECTOR = 'img,video,canvas,iframe,embed,object,svg image,input[type="image"],[' + MEDIA_ATTR + "]";
+var FLIP = "invert(1) hue-rotate(180deg)";
+var MEDIA_SELECTOR ='img,video,canvas,iframe,embed,object,svg image,input[type="image"],[' + MEDIA_ATTR + "]";
 
 // ---- pure functions (also exposed for the tests) ---------------------------------------------------
 
@@ -103,6 +104,7 @@ function sanitizeSettings(raw) {
     brightness: clampInt(r.brightness, 80, 110, DEFAULTS.brightness),
     contrast: clampInt(r.contrast, 80, 110, DEFAULTS.contrast),
     excluded: r.excluded === true,
+    system: r.system === true, // only while the browser prefers a dark scheme
   };
 }
 
@@ -114,13 +116,18 @@ function softCss() {
 // position:fixed element, so they scroll away with the page. On <html> they stay put.
 // Media get the same invert + hue-rotate(180deg) again, which undoes it exactly. Anything inside a
 // restored element is left alone, or it would be flipped a third time.
+function mediaCss() {
+  return (
+    MEDIA_SELECTOR + "{filter:" + FLIP + " !important}" +
+    ":is(" + MEDIA_SELECTOR + ") :is(" + MEDIA_SELECTOR + "){filter:none !important}"
+  );
+}
+
 function invertCss(brightness, contrast, needsHtmlBg) {
-  var flip = "invert(1) hue-rotate(180deg)";
   var css =
-    "html{filter:" + flip + " brightness(" + brightness / 100 + ") contrast(" + contrast / 100 + ") !important;" +
+    "html{filter:" + FLIP + " brightness(" + brightness / 100 + ") contrast(" + contrast / 100 + ") !important;" +
     "scrollbar-color:#6b6b6b #1e1e1e}" +
-    MEDIA_SELECTOR + "{filter:" + flip + " !important}" +
-    ":is(" + MEDIA_SELECTOR + ") :is(" + MEDIA_SELECTOR + "){filter:none !important}";
+    mediaCss();
   if (needsHtmlBg) css += "html{background-color:#fff !important}";
   return css;
 }
@@ -129,7 +136,7 @@ function invertCss(brightness, contrast, needsHtmlBg) {
 
 var expose = driftPlugin && driftPlugin.__expose;
 if (typeof expose === "function") {
-  expose({ parseColor: parseColor, lumaOf: lumaOf, schemeIsDark: schemeIsDark, decide: decide, pageLuma: pageLuma, ownLuma: ownLuma, sanitizeSettings: sanitizeSettings, softCss: softCss, invertCss: invertCss, median: median });
+  expose({ parseColor: parseColor, lumaOf: lumaOf, schemeIsDark: schemeIsDark, decide: decide, pageLuma: pageLuma, ownLuma: ownLuma, sanitizeSettings: sanitizeSettings, softCss: softCss, invertCss: invertCss, mediaCss: mediaCss, median: median });
 }
 
 var doc = typeof document !== "undefined" ? document : null;
@@ -156,7 +163,12 @@ function start() {
     fetching: false,
     evalTimes: [],
     scanned: typeof WeakSet === "function" ? new WeakSet() : null,
+    queue: [], // elements waiting to be looked at for photo backgrounds and dark blocks
     scanTimer: 0,
+    childObserver: null,
+    shadows: [], // { root, sheet }: open shadow roots that got the media rule
+    scheme: null, // the prefers-color-scheme media query list
+    answered: false,
     freezeTimer: 0,
     followUp: 0,
     lateTimers: [],
@@ -341,19 +353,31 @@ function start() {
     else writeCss("");
     state.applied = kind;
     if (kind === "invert") {
+      setShadowsOn(true);
       scanBackgrounds();
+      startChildObserving();
       if (!state.lateTimers.length) {
         state.lateTimers = LATE_SCANS_MS.map(function (ms) {
           return setTimeout(guard(scanBackgrounds), ms);
         });
       }
+    } else {
+      stopChildObserving();
+      setShadowsOn(false);
+      state.queue = [];
     }
+  }
+
+  function prefersDark() {
+    var view = doc.defaultView;
+    return !!(view.matchMedia && view.matchMedia("(prefers-color-scheme: dark)").matches);
   }
 
   function evaluate() {
     if (state.disposed) return;
     var s = state.settings;
     if (!s.enabled || s.excluded) return apply(null);
+    if (s.system && !prefersDark()) return apply(null);
     var info = withoutStyle(probe);
     if (decide(info).dark) return apply(null);
     if (s.mode === "soft") return apply("soft");
@@ -395,45 +419,116 @@ function start() {
 
   // -- pictures set as backgrounds are turned back too (a CSS selector cannot see a stylesheet's background-image) --
 
-  function scanBackgrounds() {
-    if (state.scanTimer || !state.scanned || state.applied !== "invert") return;
-    var all = doc.body ? doc.body.querySelectorAll("*") : [];
-    var limit = Math.min(all.length, SCAN_MAX);
-    var i = 0;
+  // Looks at one element: a photo-sized CSS background or an already dark block is put back as the site made it.
+  function scanElement(el) {
+    if (state.scanned.has(el)) return;
+    state.scanned.add(el);
     var view = doc.defaultView;
-    function chunk() {
-      state.scanTimer = 0;
-      if (state.disposed || state.applied !== "invert") return;
-      var end = Math.min(limit, i + SCAN_CHUNK);
-      for (; i < end; i++) {
-        var el = all[i];
-        if (state.scanned.has(el)) continue;
-        state.scanned.add(el);
-        var cs = styleOf(el);
-        var image = cs.backgroundImage;
-        var photo = !!image && image.indexOf("url(") !== -1 && image.indexOf("data:image/svg") === -1;
-        var color = parseColor(cs.backgroundColor);
-        var darkBlock = !!color && color.a >= 0.9 && lumaOf(color) < DARK_BLOCK_LUMA;
-        if (!photo && !darkBlock) continue;
-        var box = el.getBoundingClientRect();
-        if (photo) {
-          // Photo-sized only: icons and sprites look right inverted, and a page-sized wrapper would undo the whole page.
-          if (box.width < 100 || box.height < 60) continue;
-          if (box.width * box.height > 0.7 * view.innerWidth * view.innerHeight) continue;
-        } else if (box.width < 40 || box.height < 16 || box.width * box.height < 1500) {
-          continue;
-        }
-        // A block that was already dark (a navy header, a code box) is put back as the site made it, text and all.
-        el.setAttribute(MEDIA_ATTR, "");
-      }
-      if (i < limit) {
-        var next = guard(chunk);
-        // requestIdleCallback takes an options object, setTimeout a number of milliseconds.
-        state.scanTimer = typeof view.requestIdleCallback === "function" ? view.requestIdleCallback(next, { timeout: 200 }) : setTimeout(next, 50);
-      }
+    // Pictures inside a web component are out of reach of the page's stylesheet: the root gets the media rule itself.
+    if (el.shadowRoot) adoptShadow(el.shadowRoot);
+    var cs = styleOf(el);
+    var image = cs.backgroundImage;
+    var photo = !!image && image.indexOf("url(") !== -1 && image.indexOf("data:image/svg") === -1;
+    var color = parseColor(cs.backgroundColor);
+    var darkBlock = !!color && color.a >= 0.9 && lumaOf(color) < DARK_BLOCK_LUMA;
+    if (!photo && !darkBlock) return;
+    var box = el.getBoundingClientRect();
+    if (photo) {
+      // Photo-sized only: icons and sprites look right inverted, and a page-sized wrapper would undo the whole page.
+      if (box.width < 100 || box.height < 60) return;
+      if (box.width * box.height > 0.7 * view.innerWidth * view.innerHeight) return;
+    } else if (box.width < 40 || box.height < 16 || box.width * box.height < 1500) {
+      return;
     }
+    // A block that was already dark (a navy header, a code box) is put back as the site made it, text and all.
+    el.setAttribute(MEDIA_ATTR, "");
+  }
+
+  function enqueue(list) {
+    for (var i = 0; i < list.length && state.queue.length < SCAN_MAX; i++) {
+      var el = list[i];
+      if (el.nodeType === 1 && !state.scanned.has(el)) state.queue.push(el);
+    }
+  }
+
+  function pump() {
+    if (state.disposed || state.applied !== "invert") {
+      state.queue = [];
+      return;
+    }
+    var batch = state.queue.splice(0, SCAN_CHUNK);
+    for (var i = 0; i < batch.length; i++) guard(scanElement)(batch[i]);
+    if (state.queue.length) schedulePump();
+  }
+
+  function schedulePump() {
+    if (state.scanTimer) return;
+    var view = doc.defaultView;
+    var next = guard(function () {
+      state.scanTimer = 0;
+      pump();
+    });
+    // requestIdleCallback takes an options object, setTimeout a number of milliseconds.
+    state.scanTimer = typeof view.requestIdleCallback === "function" ? view.requestIdleCallback(next, { timeout: 200 }) : setTimeout(next, 50);
+  }
+
+  function scanBackgrounds() {
+    if (!state.scanned || state.applied !== "invert") return;
+    if (doc.body) enqueue(doc.body.querySelectorAll("*"));
     // The first slice is done now, so the photos near the top are not seen negative for a moment.
-    guard(chunk)();
+    pump();
+  }
+
+  // Content that arrives later (feeds, single-page apps): only the added nodes are looked at.
+  function startChildObserving() {
+    if (state.childObserver || !state.scanned || typeof MutationObserver !== "function" || !doc.body) return;
+    state.childObserver = new MutationObserver(
+      guard(function (records) {
+        for (var i = 0; i < records.length; i++) {
+          var added = records[i].addedNodes;
+          for (var j = 0; j < added.length; j++) {
+            var node = added[j];
+            if (node.nodeType !== 1 || state.queue.length >= SCAN_MAX) continue;
+            enqueue([node]);
+            enqueue(node.querySelectorAll("*"));
+          }
+        }
+        if (state.queue.length) schedulePump();
+      })
+    );
+    state.childObserver.observe(doc.body, { childList: true, subtree: true });
+  }
+
+  function stopChildObserving() {
+    if (state.childObserver) state.childObserver.disconnect();
+    state.childObserver = null;
+  }
+
+  function adoptShadow(root) {
+    if (typeof CSSStyleSheet !== "function" || !("adoptedStyleSheets" in root)) return;
+    for (var i = 0; i < state.shadows.length; i++) if (state.shadows[i].root === root) return;
+    var sheet = new CSSStyleSheet();
+    sheet.replaceSync(mediaCss());
+    root.adoptedStyleSheets = root.adoptedStyleSheets.concat([sheet]);
+    state.shadows.push({ root: root, sheet: sheet });
+    enqueue(root.querySelectorAll("*"));
+  }
+
+  // Out of inversion the rule is only switched off, not removed: the hosts are already in `scanned`, so nothing would
+  // find their roots again when inversion comes back.
+  function setShadowsOn(on) {
+    state.shadows.forEach(function (s) {
+      s.sheet.disabled = !on;
+    });
+  }
+
+  function removeShadows() {
+    state.shadows.forEach(function (s) {
+      try {
+        s.root.adoptedStyleSheets = s.root.adoptedStyleSheets.filter(function (x) { return x !== s.sheet; });
+      } catch (e) { /* the component is gone */ }
+    });
+    state.shadows = [];
   }
 
   // -- settings from background.js ----------------------------------------------------------------
@@ -485,11 +580,16 @@ function start() {
     clearTimeout(state.followUp);
     state.followUp = setTimeout(guard(function () { refresh(true); }), FOLLOW_UP_MS);
   });
+  // The browser's own light/dark preference changed: matters for "follow the system" and for "light dark" pages.
+  var onScheme = guard(function () { evaluate(); });
   var root = doc.documentElement;
 
   state.dispose = function () {
     state.disposed = true;
     stopObserving();
+    stopChildObserving();
+    removeShadows();
+    if (state.scheme) state.scheme.removeEventListener("change", onScheme);
     clearTimeout(state.timer);
     clearTimeout(state.freezeTimer);
     clearTimeout(state.followUp);
@@ -514,6 +614,13 @@ function start() {
   // Dark by default until background.js answers, so a light page does not stay light for the length of a round trip.
   guard(evaluate)();
   guard(startObserving)();
+  guard(function () {
+    var mq = doc.defaultView.matchMedia && doc.defaultView.matchMedia("(prefers-color-scheme: dark)");
+    if (mq && mq.addEventListener) {
+      mq.addEventListener("change", onScheme);
+      state.scheme = mq;
+    }
+  })();
   doc.addEventListener("visibilitychange", onVisible);
   doc.defaultView.addEventListener("pageshow", onShow);
   doc.defaultView.addEventListener("focus", wake);

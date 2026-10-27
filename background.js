@@ -5,8 +5,11 @@
 //
 // Storage key (driftPlugin.storage):
 //   settings  { enabled: boolean, mode: "auto" | "soft" | "invert",
-//               brightness: 80..110, contrast: 80..110, excluded: [host, ...] }
-//             a host in `excluded` covers its subdomains too
+//               brightness: 80..110, contrast: 80..110, excluded: [host, ...],
+//               siteMode: "except" | "only"   (the list is sites to skip, or the only sites to darken),
+//               schedule: "always" | "system" | "night", nightFrom: 0..23, nightTo: 0..23,
+//               overrides: { host: mode } }
+//             a host in `excluded` or `overrides` covers its subdomains too
 (function () {
   var MODES = ["auto", "soft", "invert"];
   var MAX_EXCLUDED = 500;
@@ -35,6 +38,8 @@
     var host = url.hostname.toLowerCase().replace(/\.$/, "").replace(/^\*\./, "");
     if (host === "" || host.length > 253) return null;
     if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(host) || host.indexOf("..") !== -1) return null;
+    // A bare "com" would cover every .com site.
+    if (host.indexOf(".") === -1 && host !== "localhost") return null;
     return host;
   }
 
@@ -60,6 +65,33 @@
     return { list: addHost(list, h), excluded: true, changed: true };
   }
 
+  function removeHost(list, host) {
+    var h = normalizeHost(host);
+    return h ? list.filter(function (rule) { return !covers(rule, h); }) : list;
+  }
+
+  // The longest rule that covers the host wins, so "docs.example.com" can differ from "example.com".
+  function overrideFor(overrides, host) {
+    var h = normalizeHost(host);
+    if (!h || !overrides || typeof overrides !== "object") return null;
+    var best = null;
+    Object.keys(overrides).forEach(function (rule) {
+      if (covers(rule, h) && (best === null || rule.length > best.length)) best = rule;
+    });
+    return best === null ? null : overrides[best];
+  }
+
+  // Is the theme off for this host, going by the site list alone?
+  function hostOff(settings, host) {
+    var listed = isExcluded(settings.excluded, host);
+    return settings.siteMode === "only" ? !listed : listed;
+  }
+
+  function inNight(hour, from, to) {
+    if (from === to) return true;
+    return from < to ? hour >= from && hour < to : hour >= from || hour < to;
+  }
+
   function addHost(list, host) {
     var h = normalizeHost(host);
     if (!h || list.indexOf(h) !== -1) return list;
@@ -71,8 +103,17 @@
     return isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
   }
 
+  var SCHEDULES = ["always", "system", "night"];
+  var MAX_OVERRIDES = 100;
+
   function sanitize(raw) {
     var r = raw && typeof raw === "object" ? raw : {};
+    var overrides = {};
+    var oRaw = r.overrides && typeof r.overrides === "object" ? r.overrides : {};
+    Object.keys(oRaw).forEach(function (key) {
+      var h = normalizeHost(key);
+      if (h && MODES.indexOf(oRaw[key]) !== -1 && Object.keys(overrides).length < MAX_OVERRIDES) overrides[h] = oRaw[key];
+    });
     var seen = {};
     var excluded = [];
     (Array.isArray(r.excluded) ? r.excluded : []).forEach(function (x) {
@@ -88,11 +129,16 @@
       brightness: clampInt(r.brightness, 80, 110, 100),
       contrast: clampInt(r.contrast, 80, 110, 90),
       excluded: excluded,
+      siteMode: r.siteMode === "only" ? "only" : "except",
+      schedule: SCHEDULES.indexOf(r.schedule) !== -1 ? r.schedule : "always",
+      nightFrom: clampInt(r.nightFrom, 0, 23, 20),
+      nightTo: clampInt(r.nightTo, 0, 23, 7),
+      overrides: overrides,
     };
   }
 
   if (typeof driftPlugin !== "undefined" && typeof driftPlugin.__expose === "function") {
-    driftPlugin.__expose({ normalizeHost: normalizeHost, isExcluded: isExcluded, toggleHost: toggleHost, addHost: addHost, sanitize: sanitize });
+    driftPlugin.__expose({ normalizeHost: normalizeHost, isExcluded: isExcluded, toggleHost: toggleHost, addHost: addHost, removeHost: removeHost, overrideFor: overrideFor, hostOff: hostOff, inNight: inNight, sanitize: sanitize });
   }
 
   // ---- storage --------------------------------------------------------------------------------
@@ -105,12 +151,15 @@
     return run;
   }
 
+  // Only this page writes the settings, so the last value read or written stays valid: pages asking on every load
+  // do not each go to storage. `undefined` means "not read yet" (storage itself answers null for "never saved").
+  var cache;
+
   function read() {
+    if (cache !== undefined) return Promise.resolve(sanitize(cache));
     return driftPlugin.storage.get("settings").then(function (value) {
-      if (value === null || value === undefined) {
-        return sanitize({ excluded: DEFAULT_EXCLUDED });
-      }
-      return sanitize(value);
+      cache = value === null || value === undefined ? { excluded: DEFAULT_EXCLUDED } : value;
+      return sanitize(cache);
     });
   }
 
@@ -119,6 +168,7 @@
       return read().then(function (settings) {
         var next = sanitize(edit(settings) || settings);
         return driftPlugin.storage.set("settings", next).then(function () {
+          cache = next;
           return next;
         });
       });
@@ -131,7 +181,16 @@
   driftPlugin.runtime.onMessage(function (message) {
     if (!message || message.type !== "get") return null;
     return read().then(function (s) {
-      return { enabled: s.enabled, mode: s.mode, brightness: s.brightness, contrast: s.contrast, excluded: isExcluded(s.excluded, String(message.host || "")) };
+      var host = String(message.host || "");
+      var scheduled = s.schedule !== "night" || inNight(new Date().getHours(), s.nightFrom, s.nightTo);
+      return {
+        enabled: s.enabled && scheduled,
+        mode: overrideFor(s.overrides, host) || s.mode,
+        brightness: s.brightness,
+        contrast: s.contrast,
+        excluded: hostOff(s, host),
+        system: s.schedule === "system",
+      };
     }).catch(function (e) {
       log(e);
       return null;
@@ -174,18 +233,19 @@
     if (id === "toggle-site" || id === "@toolbar" || id === "broken-here") {
       return hostOfCommand(windowLabel, context.context).then(function (host) {
         if (!host) return say("Dark theme: open an ordinary web page first");
-        var result = null;
+        var off = false;
         return change(function (s) {
+          var only = s.siteMode === "only";
           if (id === "broken-here") {
-            result = { excluded: true };
-            s.excluded = addHost(s.excluded, host);
+            // "Doesn't work here" always means off: skip the site, or drop it from the list of sites to darken.
+            s.excluded = only ? removeHost(s.excluded, host) : addHost(s.excluded, host);
           } else {
-            result = toggleHost(s.excluded, host);
-            s.excluded = result.list;
+            s.excluded = toggleHost(s.excluded, host).list;
           }
+          off = hostOff(s, host);
           return s;
         }).then(function () {
-          return say(result.excluded ? "Dark theme: off on " + host : "Dark theme: on for " + host);
+          return say(off ? "Dark theme: off on " + host : "Dark theme: on for " + host);
         });
       });
     }
@@ -221,6 +281,10 @@
           var p = m.patch && typeof m.patch === "object" ? m.patch : {};
           if (typeof p.enabled === "boolean") s.enabled = p.enabled;
           if (MODES.indexOf(p.mode) !== -1) s.mode = p.mode;
+          if (p.siteMode === "except" || p.siteMode === "only") s.siteMode = p.siteMode;
+          if (SCHEDULES.indexOf(p.schedule) !== -1) s.schedule = p.schedule;
+          if (p.nightFrom !== undefined) s.nightFrom = p.nightFrom;
+          if (p.nightTo !== undefined) s.nightTo = p.nightTo;
           if (p.brightness !== undefined) s.brightness = p.brightness;
           if (p.contrast !== undefined) s.contrast = p.contrast;
           return s;
@@ -231,6 +295,25 @@
         if (!host) return Promise.resolve(fail("invalid"));
         task = change(function (s) {
           s.excluded = addHost(s.excluded, host);
+          return s;
+        }).then(done);
+        break;
+      }
+      case "addSites": {
+        var hosts = (Array.isArray(m.inputs) ? m.inputs : []).map(normalizeHost).filter(Boolean);
+        if (!hosts.length) return Promise.resolve(fail("invalid"));
+        task = change(function (s) {
+          hosts.forEach(function (h) { s.excluded = addHost(s.excluded, h); });
+          return s;
+        }).then(done);
+        break;
+      }
+      case "setOverride": {
+        var target = normalizeHost(m.input);
+        if (!target) return Promise.resolve(fail("invalid"));
+        task = change(function (s) {
+          if (MODES.indexOf(m.mode) !== -1) s.overrides[target] = m.mode;
+          else delete s.overrides[target];
           return s;
         }).then(done);
         break;

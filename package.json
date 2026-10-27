@@ -1,0 +1,8 @@
+{
+  "name": "drift-dark",
+  "private": true,
+  "description": "Tests for the pure functions of the Forced Dark Theme plugin. The plugin itself has no build step.",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}

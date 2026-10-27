@@ -14,7 +14,11 @@ A plugin for the Drift browser (0.2.0 or newer). Makes light websites dark. A si
 - **The page's overall brightness** is the background of `<body>` (or `<html>`). Only when that is not dark, and every sampled spot of the viewport is dark, does the page count as dark. A dark header over a white page is a light page.
 - **Dynamic recolouring (CSS variables, per-element colours) is not implemented.** It is the best-looking approach and also the one with the most ways to break a site; the three modes above are what is here.
 - **Exceptions.** A list of sites (a site covers its subdomains). Toolbar button and command "toggle on this site", command "toggle everywhere", command "doesn't work on this site" (adds the site to the list), and a right-click item "Dark theme: toggle on this site". Seeded on first run with maps and canvas editors (maps.google.com, earth.google.com, www.openstreetmap.org, figma.com, excalidraw.com, photopea.com); remove any of them in the settings.
-- **Settings page.** Global switch, mode, brightness and contrast (80-110%), the site list. English and Russian.
+- **Settings page.** Global switch, mode, schedule, brightness and contrast (80-110%), the site list, a mode per site. English and Russian. A control you are using is not redrawn under your hand; the redraw waits until it loses focus.
+- **Schedule.** Always, like the system (only while the browser prefers dark) or at night (from-to hours, across midnight too). The hours are checked whenever a page asks for its settings, there is no timer.
+- **Site list, two readings.** "Skip these" (default) or "Only these" (the list is the sites that get the theme). Toolbar button and commands work in both; "doesn't work on this site" always means off. The list can be shown as text and added back from text (one site per line), to move it between machines. A one-word rule such as `com` is refused, it would cover every `.com` site.
+- **Mode per site.** Overrides the global mode for a site and its subdomains (the longest matching rule wins). Brightness and contrast stay global.
+- **Content that arrives later.** In inversion, nodes added after the first scans (feeds, single-page apps) are looked at too, a slice at a time while the browser is idle. Open shadow roots get the media rule themselves, so pictures inside web components are turned back.
 
 ## How it is built, and what the platform limits
 
@@ -29,7 +33,13 @@ A plugin for the Drift browser (0.2.0 or newer). Makes light websites dark. A si
 - Not touched: private tabs (the browser injects nothing there), non-HTML documents (PDF, images, XML), pages that are not `http`/`https`.
 - Permissions: `storage`, `ui`, `context_menu`, `tabs_snapshot`. No network.
 
+## Tests
+
+`npm test` (Node 21+: the script passes a glob to `node --test`, which older versions do not expand on Windows). Loads `background.js` and `content.js` into a `vm` with a stub `driftPlugin` and checks their pure functions (host rules, schedule, colour and scheme decisions, the CSS). There is no DOM there: what the page does is checked by hand in the browser. A test also keeps the two copies of the settings rules (one per file) in agreement.
+
 ## Honest limits
+
+The toolbar button cannot show on/off by its icon: the browser's `setButton` takes only a title, disabled and visible, so the state is in the tooltip. Closed shadow roots and iframes are out of reach.
 
 Inversion is never perfect. Expect: photos used as CSS backgrounds that are smaller than 100x60 px or are SVG data URLs showing inverted; embedded iframes (ads, widgets) shown in their original, light colours; semi-transparent overlays and shadows looking different; slightly dull media (brightness and contrast act on the whole page); gradients and colours shifted by `hue-rotate`. On heavy pages the filter costs GPU time. Where a site looks wrong, use "doesn't work on this site". The settings page is dark in any browser theme.
 
