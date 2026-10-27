@@ -1,0 +1,70 @@
+{
+  "id": "drift-dark",
+  "name": "Forced Dark Theme",
+  "names": { "en": "Forced Dark Theme", "ru": "Принудительная тёмная тема" },
+  "version": "0.1.0",
+  "minBrowserVersion": "0.2.0",
+  "description": "Makes light websites dark. Sites that already have a dark theme are left alone. Per-site exceptions, brightness and contrast.",
+  "descriptions": {
+    "ru": "Делает светлые сайты тёмными. Сайты со своей тёмной темой не трогает. Исключения по сайтам, яркость и контраст."
+  },
+  "author": "rayder-dev",
+  "permissions": ["storage", "ui", "context_menu", "tabs_snapshot"],
+  "background": { "script": "background.js" },
+  "contentScripts": [
+    {
+      "matches": ["*://*/*"],
+      "js": ["content.js"],
+      "runAt": "document_start"
+    }
+  ],
+  "icon": "icon.svg",
+  "ui": {
+    "page": "page.html",
+    "toolbarButton": {
+      "icon": "icon.svg",
+      "title": "Dark theme: on/off for this site",
+      "titles": { "ru": "Тёмная тема: вкл/выкл на этом сайте" }
+    },
+    "extraButtons": [
+      {
+        "command": "open-settings",
+        "placement": "toolbar",
+        "action": "popup",
+        "icon": "icon.svg",
+        "title": "Dark theme settings",
+        "titles": { "ru": "Настройки тёмной темы" }
+      }
+    ],
+    "commands": [
+      {
+        "id": "toggle-site",
+        "title": "Dark theme: toggle on this site",
+        "titles": { "ru": "Тёмная тема: включить/выключить на этом сайте" }
+      },
+      {
+        "id": "toggle-global",
+        "title": "Dark theme: toggle everywhere",
+        "titles": { "ru": "Тёмная тема: включить/выключить везде" }
+      },
+      {
+        "id": "broken-here",
+        "title": "Dark theme: doesn't work on this site",
+        "titles": { "ru": "Тёмная тема: не работает на этом сайте" }
+      },
+      {
+        "id": "open-settings",
+        "title": "Dark theme: settings",
+        "titles": { "ru": "Тёмная тема: настройки" }
+      }
+    ],
+    "contextMenu": [
+      {
+        "command": "toggle-site",
+        "title": "Dark theme: toggle on this site",
+        "titles": { "ru": "Тёмная тема: переключить на этом сайте" },
+        "contexts": ["page"]
+      }
+    ]
+  }
+}
