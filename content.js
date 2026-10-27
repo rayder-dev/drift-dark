@@ -14,6 +14,9 @@ var SOFT_CANVAS_LUMA = 0.07; // what the default canvas looks like under color-s
 var MODES = ["auto", "soft", "invert"];
 var DEFAULTS = { enabled: true, mode: "auto", brightness: 100, contrast: 90, excluded: false };
 var HTML_TYPES = ["text/html", "application/xhtml+xml", "text/plain"];
+var HINT_KEY = "drift-dark-hint";
+var FREEZE_CSS = "*,*::before,*::after{transition:none !important}";
+var FREEZE_MS = 150;
 var MIN_REFETCH_MS = 3000;
 var OBSERVE_THROTTLE_MS = 250;
 var MAX_EVALS_PER_10S = 20;
@@ -134,8 +137,30 @@ function start() {
     evalTimes: [],
     scanned: typeof WeakSet === "function" ? new WeakSet() : null,
     scanTimer: 0,
+    freezeTimer: 0,
     disposed: false,
   };
+
+  // What the last visit to this site learned: "off" when the theme was not applied. Read at once, before the answer
+  // from background.js, so a site that is excluded is not painted dark for the length of a round trip.
+  var hint = readHint();
+  if (hint === "off") state.settings.excluded = true;
+
+  function readHint() {
+    try {
+      return window.localStorage.getItem(HINT_KEY);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function writeHint(value) {
+    if (value === hint) return;
+    hint = value;
+    try {
+      window.localStorage.setItem(HINT_KEY, value);
+    } catch (e) { /* storage may be blocked: the hint is only a convenience */ }
+  }
 
   function guard(fn) {
     return function () {
@@ -149,10 +174,21 @@ function start() {
 
   // -- the style: one <style id>, plus a constructable sheet when the page's CSP refuses inline styles --
 
+  // The same css again touches nothing. A change is written with the page's transitions switched off for a moment:
+  // a site with `transition: all` would otherwise fade the filter in, and pictures would flash negative on the way.
   function writeCss(css) {
+    if (css === state.css && (!css || (state.styleEl && state.styleEl.isConnected))) return;
     state.css = css;
+    clearTimeout(state.freezeTimer);
+    render(css ? css + FREEZE_CSS : "");
+    if (css) {
+      state.freezeTimer = setTimeout(guard(function () { render(state.css); }), FREEZE_MS);
+    }
+  }
+
+  function render(text) {
     var el = doc.getElementById(STYLE_ID);
-    if (!css) {
+    if (!text) {
       if (el) el.remove();
       state.styleEl = null;
       dropSheet();
@@ -163,11 +199,11 @@ function start() {
       el.id = STYLE_ID;
       (doc.head || doc.documentElement).appendChild(el);
     }
-    if (el.textContent !== css) el.textContent = css;
+    if (el.textContent !== text) el.textContent = text;
     state.styleEl = el;
     // A page whose CSP forbids inline styles ends up with an empty sheet: a constructable sheet is not subject to it.
     var blocked = !el.sheet || el.sheet.cssRules.length === 0;
-    if (blocked) useSheet(css);
+    if (blocked) useSheet(text);
     else dropSheet();
   }
 
@@ -186,15 +222,19 @@ function start() {
     state.sheet = null;
   }
 
-  // Runs `fn` with our style switched off, so the page is measured as the site made it. Same task, no paint in between.
+  // Runs `fn` with our style switched off, so the page is measured as the site made it. The sheet is only disabled
+  // for the length of the call (same task, no paint in between); the <style> node itself is never removed and re-added.
   function withoutStyle(fn) {
-    var css = state.css;
-    if (!css) return fn();
-    writeCss("");
+    if (!state.css) return fn();
+    var sheets = [];
+    if (state.styleEl && state.styleEl.sheet) sheets.push(state.styleEl.sheet);
+    if (state.sheet) sheets.push(state.sheet);
+    var was = sheets.map(function (s) { return s.disabled; });
+    sheets.forEach(function (s) { s.disabled = true; });
     try {
       return fn();
     } finally {
-      writeCss(css);
+      sheets.forEach(function (s, i) { s.disabled = was[i]; });
     }
   }
 
@@ -372,7 +412,12 @@ function start() {
       guard(function (reply) {
         state.fetching = false;
         if (state.disposed || !reply || typeof reply !== "object") return;
-        state.settings = sanitizeSettings(reply);
+        var next = sanitizeSettings(reply);
+        writeHint(!next.enabled || next.excluded ? "off" : "on");
+        // Back in front with nothing changed: leave the page as it is.
+        if (JSON.stringify(next) === JSON.stringify(state.settings) && state.answered) return;
+        state.answered = true;
+        state.settings = next;
         evaluate();
       }),
       function () { state.fetching = false; }
@@ -389,6 +434,7 @@ function start() {
     state.disposed = true;
     stopObserving();
     clearTimeout(state.timer);
+    clearTimeout(state.freezeTimer);
     doc.removeEventListener("visibilitychange", onVisible);
     doc.defaultView.removeEventListener("pageshow", onShow);
     doc.defaultView.removeEventListener("focus", onShow);

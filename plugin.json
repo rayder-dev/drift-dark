@@ -2,7 +2,7 @@
   "id": "drift-dark",
   "name": "Forced Dark Theme",
   "names": { "en": "Forced Dark Theme", "ru": "Принудительная тёмная тема" },
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minBrowserVersion": "0.2.0",
   "description": "Makes light websites dark. Sites that already have a dark theme are left alone. Per-site exceptions, brightness and contrast.",
   "descriptions": {
@@ -22,7 +22,7 @@
   "ui": {
     "page": "page.html",
     "toolbarButton": {
-      "icon": "icon.svg",
+      "icon": "toggle.svg",
       "title": "Dark theme: on/off for this site",
       "titles": { "ru": "Тёмная тема: вкл/выкл на этом сайте" }
     },
@@ -31,7 +31,7 @@
         "command": "open-settings",
         "placement": "toolbar",
         "action": "popup",
-        "icon": "icon.svg",
+        "icon": "settings.svg",
         "title": "Dark theme settings",
         "titles": { "ru": "Настройки тёмной темы" }
       }
