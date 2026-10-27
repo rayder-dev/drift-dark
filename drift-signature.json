@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "files": {
+    "README.md": "f7318d23c2ecb2d69ab624af9e667fd2821f0ebb232b61f07fc37b9dc2f3326e",
+    "background.js": "4faf60e12248fab00fae6dd5131ae297e6ba8abf7db0966c6ed0f3f3f7d9df61",
+    "content.js": "9ca4939bc2434067811c4bc9d639dc6d3b40413a12fc0d53fb2da2b2d7c86112",
+    "icon.svg": "d2c2657b7ce04bf6ffe2f6d6080e362184cf09c82852e92c58cba4bc58437a58",
+    "page.css": "745812256ed011737a459389883022bf6118dd72a1234b07f3b58f0904ae047d",
+    "page.html": "1c5e6d0b42d12d361c5aa7fc947afb06dcafc4831ba6515d9e32c2bf66a05b28",
+    "page.js": "e2a9ca052c03e9e198a9305e1c137474ce264ac454351ab17ef1dd397da37afd",
+    "plugin.json": "42ea0e71a31353b8d676dc3e9465429c683b3d15f0a56b94d92a0be2cd6d406a"
+  },
+  "signature": "1QXOAZdEQJ27/3nnrZNtt2HVe/KHogMR4qtj+OYoxZGziG/zz+y6lTsX0kp0j2ZpdfKbgw2w8vqmoBkSs/vqCA=="
+}
