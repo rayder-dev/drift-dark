@@ -17,7 +17,8 @@ var HTML_TYPES = ["text/html", "application/xhtml+xml", "text/plain"];
 var HINT_KEY = "drift-dark-hint";
 var FREEZE_CSS = "*,*::before,*::after{transition:none !important}";
 var FREEZE_MS = 150;
-var MIN_REFETCH_MS = 3000;
+var MIN_REFETCH_MS = 1500;
+var FOLLOW_UP_MS = 700; // one more ask after a wake-up, in case the command had not finished writing
 var OBSERVE_THROTTLE_MS = 250;
 var MAX_EVALS_PER_10S = 20;
 var DARK_BLOCK_LUMA = 0.25; // an element background darker than this is already dark and is kept as it is
@@ -157,6 +158,7 @@ function start() {
     scanned: typeof WeakSet === "function" ? new WeakSet() : null,
     scanTimer: 0,
     freezeTimer: 0,
+    followUp: 0,
     lateTimers: [],
     disposed: false,
   };
@@ -436,9 +438,9 @@ function start() {
 
   // -- settings from background.js ----------------------------------------------------------------
 
-  function refresh() {
+  function refresh(force) {
     if (state.fetching || state.disposed) return;
-    if (Date.now() - state.lastFetch < MIN_REFETCH_MS) return;
+    if (!force && Date.now() - state.lastFetch < MIN_REFETCH_MS) return;
     state.fetching = true;
     state.lastFetch = Date.now();
     var asked;
@@ -470,15 +472,37 @@ function start() {
   });
   var onShow = guard(function () { refresh(); });
 
+  // The buttons and the menu entry live outside the page, and nothing tells the page they were used. What the page does
+  // see: it loses focus (the toolbar, the settings panel) or gets a right click (the menu entry). Either marks it dirty,
+  // and the next sign of life (mouse back over the page, a key, focus) asks once, and once more a moment later in case
+  // the command had not finished writing. No timer runs in between.
+  var dirty = false;
+  var markDirty = guard(function () { dirty = true; });
+  var wake = guard(function () {
+    if (!dirty || state.disposed) return;
+    dirty = false;
+    refresh(true);
+    clearTimeout(state.followUp);
+    state.followUp = setTimeout(guard(function () { refresh(true); }), FOLLOW_UP_MS);
+  });
+  var root = doc.documentElement;
+
   state.dispose = function () {
     state.disposed = true;
     stopObserving();
     clearTimeout(state.timer);
     clearTimeout(state.freezeTimer);
+    clearTimeout(state.followUp);
     state.lateTimers.forEach(clearTimeout);
     doc.removeEventListener("visibilitychange", onVisible);
     doc.defaultView.removeEventListener("pageshow", onShow);
-    doc.defaultView.removeEventListener("focus", onShow);
+    doc.defaultView.removeEventListener("focus", wake);
+    doc.defaultView.removeEventListener("blur", markDirty);
+    doc.removeEventListener("contextmenu", markDirty, true);
+    doc.removeEventListener("pointermove", wake, true);
+    doc.removeEventListener("keydown", wake, true);
+    root.removeEventListener("mouseenter", wake);
+    root.removeEventListener("mouseleave", markDirty);
     writeCss("");
     var marked = doc.querySelectorAll("[" + MEDIA_ATTR + "]");
     for (var i = 0; i < marked.length; i++) marked[i].removeAttribute(MEDIA_ATTR);
@@ -492,6 +516,13 @@ function start() {
   guard(startObserving)();
   doc.addEventListener("visibilitychange", onVisible);
   doc.defaultView.addEventListener("pageshow", onShow);
-  doc.defaultView.addEventListener("focus", onShow);
+  doc.defaultView.addEventListener("focus", wake);
+  doc.defaultView.addEventListener("blur", markDirty);
+  doc.addEventListener("contextmenu", markDirty, true);
+  doc.addEventListener("pointermove", wake, { capture: true, passive: true });
+  doc.addEventListener("keydown", wake, true);
+  root.addEventListener("mouseenter", wake);
+  // To press a button of the browser the mouse has to leave the page, whatever happens to focus.
+  root.addEventListener("mouseleave", markDirty);
   guard(refresh)();
 }
