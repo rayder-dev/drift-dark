@@ -2,7 +2,7 @@
   "id": "drift-dark",
   "name": "Forced Dark Theme",
   "names": { "en": "Forced Dark Theme", "ru": "Принудительная тёмная тема" },
-  "version": "0.1.1",
+  "version": "0.1.2",
   "minBrowserVersion": "0.2.0",
   "description": "Makes light websites dark. Sites that already have a dark theme are left alone. Per-site exceptions, brightness and contrast.",
   "descriptions": {

@@ -20,6 +20,8 @@ var FREEZE_MS = 150;
 var MIN_REFETCH_MS = 3000;
 var OBSERVE_THROTTLE_MS = 250;
 var MAX_EVALS_PER_10S = 20;
+var DARK_BLOCK_LUMA = 0.25; // an element background darker than this is already dark and is kept as it is
+var LATE_SCANS_MS = [1500, 5000]; // content that arrives after the first screen
 var SCAN_CHUNK = 300;
 var SCAN_MAX = 6000;
 var MEDIA_SELECTOR = 'img,video,canvas,iframe,embed,object,svg image,input[type="image"],[' + MEDIA_ATTR + "]";
@@ -57,6 +59,23 @@ function median(values) {
   var s = values.slice().sort(function (a, b) { return a - b; });
   var mid = s.length >> 1;
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
+// The page's own background: <body>'s, else <html>'s, when it is (nearly) opaque.
+function ownLuma(bodyBg, rootBg) {
+  if (bodyBg && bodyBg.a >= 0.9) return lumaOf(bodyBg);
+  if (rootBg && rootBg.a >= 0.9) return lumaOf(rootBg);
+  return null;
+}
+
+// One number for "how light is this page". A dark page background wins; otherwise the page is dark only when every
+// sampled spot is (a dark wrapper over the whole viewport). A dark header over a white page is a light page.
+function pageLuma(own, found) {
+  if (own !== null && own < DARK_LUMA) return own;
+  var allDark = found.length >= 3 && found.every(function (x) { return x < DARK_LUMA; });
+  if (allDark) return median(found);
+  if (own !== null) return own;
+  return found.length ? Math.max.apply(null, found) : null;
 }
 
 // info: { metaSchemes: string[], computedScheme: string, prefersDark: bool, bgLuma: number|null }
@@ -109,7 +128,7 @@ function invertCss(brightness, contrast, needsHtmlBg) {
 
 var expose = driftPlugin && driftPlugin.__expose;
 if (typeof expose === "function") {
-  expose({ parseColor: parseColor, lumaOf: lumaOf, schemeIsDark: schemeIsDark, decide: decide, sanitizeSettings: sanitizeSettings, softCss: softCss, invertCss: invertCss, median: median });
+  expose({ parseColor: parseColor, lumaOf: lumaOf, schemeIsDark: schemeIsDark, decide: decide, pageLuma: pageLuma, ownLuma: ownLuma, sanitizeSettings: sanitizeSettings, softCss: softCss, invertCss: invertCss, median: median });
 }
 
 var doc = typeof document !== "undefined" ? document : null;
@@ -138,6 +157,7 @@ function start() {
     scanned: typeof WeakSet === "function" ? new WeakSet() : null,
     scanTimer: 0,
     freezeTimer: 0,
+    lateTimers: [],
     disposed: false,
   };
 
@@ -293,7 +313,7 @@ function start() {
       metaSchemes: metas,
       computedScheme: styleOf(root).colorScheme || "",
       prefersDark: !!(view.matchMedia && view.matchMedia("(prefers-color-scheme: dark)").matches),
-      bgLuma: median(found),
+      bgLuma: pageLuma(ownLuma(bodyBg, rootBg), found),
       needsHtmlBg: (!rootBg || rootBg.a < 0.1) && (!bodyBg || bodyBg.a < 0.1),
     };
   }
@@ -318,7 +338,14 @@ function start() {
     else if (kind === "invert") writeCss(invertCss(s.brightness, s.contrast, needsHtmlBg));
     else writeCss("");
     state.applied = kind;
-    if (kind === "invert") scanBackgrounds();
+    if (kind === "invert") {
+      scanBackgrounds();
+      if (!state.lateTimers.length) {
+        state.lateTimers = LATE_SCANS_MS.map(function (ms) {
+          return setTimeout(guard(scanBackgrounds), ms);
+        });
+      }
+    }
   }
 
   function evaluate() {
@@ -380,15 +407,28 @@ function start() {
         var el = all[i];
         if (state.scanned.has(el)) continue;
         state.scanned.add(el);
-        var image = styleOf(el).backgroundImage;
-        if (!image || image.indexOf("url(") === -1 || image.indexOf("data:image/svg") !== -1) continue;
+        var cs = styleOf(el);
+        var image = cs.backgroundImage;
+        var photo = !!image && image.indexOf("url(") !== -1 && image.indexOf("data:image/svg") === -1;
+        var color = parseColor(cs.backgroundColor);
+        var darkBlock = !!color && color.a >= 0.9 && lumaOf(color) < DARK_BLOCK_LUMA;
+        if (!photo && !darkBlock) continue;
         var box = el.getBoundingClientRect();
-        // Photo-sized only: icons and sprites look right inverted, and a page-sized wrapper would undo the whole page.
-        if (box.width < 100 || box.height < 60) continue;
-        if (box.width * box.height > 0.7 * view.innerWidth * view.innerHeight) continue;
+        if (photo) {
+          // Photo-sized only: icons and sprites look right inverted, and a page-sized wrapper would undo the whole page.
+          if (box.width < 100 || box.height < 60) continue;
+          if (box.width * box.height > 0.7 * view.innerWidth * view.innerHeight) continue;
+        } else if (box.width < 40 || box.height < 16 || box.width * box.height < 1500) {
+          continue;
+        }
+        // A block that was already dark (a navy header, a code box) is put back as the site made it, text and all.
         el.setAttribute(MEDIA_ATTR, "");
       }
-      if (i < limit) state.scanTimer = (view.requestIdleCallback || setTimeout).call(view, guard(chunk), 50);
+      if (i < limit) {
+        var next = guard(chunk);
+        // requestIdleCallback takes an options object, setTimeout a number of milliseconds.
+        state.scanTimer = typeof view.requestIdleCallback === "function" ? view.requestIdleCallback(next, { timeout: 200 }) : setTimeout(next, 50);
+      }
     }
     // The first slice is done now, so the photos near the top are not seen negative for a moment.
     guard(chunk)();
@@ -435,6 +475,7 @@ function start() {
     stopObserving();
     clearTimeout(state.timer);
     clearTimeout(state.freezeTimer);
+    state.lateTimers.forEach(clearTimeout);
     doc.removeEventListener("visibilitychange", onVisible);
     doc.defaultView.removeEventListener("pageshow", onShow);
     doc.defaultView.removeEventListener("focus", onShow);

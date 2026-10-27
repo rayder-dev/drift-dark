@@ -108,19 +108,16 @@
   }
 
   function modeButton(id) {
-    return el(
-      "button",
-      {
-        type: "button",
-        class: "mode",
-        role: "radio",
-        "aria-checked": String(settings.mode === id),
-        onclick: function () {
-          send({ type: "set", patch: { mode: id } }).then(render);
-        },
+    return el("button", {
+      type: "button",
+      role: "radio",
+      title: t(id + "Hint"),
+      text: t(id),
+      "aria-checked": String(settings.mode === id),
+      onclick: function () {
+        send({ type: "set", patch: { mode: id } }).then(render);
       },
-      [el("b", { text: t(id) }), el("span", { text: t(id + "Hint") })]
-    );
+    });
   }
 
   function slider(key, min, max) {
@@ -141,11 +138,12 @@
 
   function siteRow(host) {
     return el("li", {}, [
-      el("span", { text: host }),
+      el("span", { text: host, title: host }),
       el("button", {
         type: "button",
-        class: "btn",
-        text: t("remove"),
+        class: "chip-x",
+        text: "×",
+        title: t("remove"),
         "aria-label": t("remove") + ": " + host,
         onclick: function () {
           send({ type: "removeSite", host: host }).then(render);
@@ -188,37 +186,43 @@
     });
 
     var tune = el("div", { class: "card" }, [
-      el("h2", { text: t("tune") }),
+      el("div", { class: "head" }, [
+        el("h2", { text: t("tune") }),
+        el("button", {
+          type: "button",
+          class: "btn",
+          text: t("reset"),
+          onclick: function () {
+            send({ type: "set", patch: { brightness: 100, contrast: 90 } }).then(render);
+          },
+        }),
+      ]),
       slider("brightness", 80, 110),
       slider("contrast", 80, 110),
-      el("button", {
-        type: "button",
-        class: "btn",
-        text: t("reset"),
-        onclick: function () {
-          send({ type: "set", patch: { brightness: 100, contrast: 90 } }).then(render);
-        },
-      }),
+    ]);
+
+    var mode = el("div", { class: "card" }, [
+      el("div", { class: "head" }, [el("h2", { text: t("mode") })]),
+      el("div", { class: "seg", role: "radiogroup", "aria-label": t("mode") }, [modeButton("auto"), modeButton("soft"), modeButton("invert")]),
+      el("p", { class: "hint", text: t(settings.mode + "Hint") }),
+    ]);
+
+    var sites = el("div", { class: "card" }, [
+      el("div", { class: "head" }, [el("h2", { text: t("sites") })]),
+      el("p", { class: "hint", text: t("sitesHint") }),
+      list,
+      el("div", { class: "add" }, [input, el("button", { type: "button", class: "btn", text: t("add"), onclick: add })]),
+      el("div", { class: noticeError ? "notice error" : "notice", role: "status", text: noticeText }),
     ]);
 
     root.appendChild(
       el("div", { class: "page" }, [
-        el("h1", { class: "title", text: t("title") }),
-        el("p", { class: "subtitle", text: t("subtitle") }),
-        el("div", { class: "card" }, [
-          el("h2", { text: t("general") }),
-          el("div", { class: "row" }, [el("div", {}, [el("div", { text: t("enabled") }), el("p", { class: "hint", text: t("enabledHint") })]), toggle]),
+        el("div", { class: "top" }, [
+          el("div", {}, [el("h1", { class: "title", text: t("title") }), el("p", { class: "subtitle", text: t("subtitle") })]),
+          el("label", { class: "master", title: t("enabledHint") }, [el("span", { text: t("enabled") }), toggle]),
         ]),
-        el("div", { class: "card" }, [el("h2", { text: t("mode") }), el("div", { class: "modes", role: "radiogroup", "aria-label": t("mode") }, [modeButton("auto"), modeButton("soft"), modeButton("invert")])]),
-        tune,
-        el("div", { class: "card" }, [
-          el("h2", { text: t("sites") }),
-          el("p", { class: "hint", text: t("sitesHint") }),
-          list,
-          el("div", { class: "add" }, [input, el("button", { type: "button", class: "btn", text: t("add"), onclick: add })]),
-          el("div", { class: noticeError ? "notice error" : "notice", role: "status", text: noticeText }),
-        ]),
-        el("p", { class: "hint", text: t("applyNote") }),
+        el("div", { class: "grid" }, [el("div", { class: "col" }, [mode, tune]), el("div", { class: "col" }, [sites])]),
+        el("p", { class: "foot", text: t("applyNote") }),
       ])
     );
     noticeError = false;
