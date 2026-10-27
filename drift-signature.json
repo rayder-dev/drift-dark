@@ -1,16 +1,16 @@
 {
   "version": 1,
   "files": {
-    "README.md": "9d28351032de0ada9c340c9d6a2c414f11d23578d678ebe54a29f828c3dc2edc",
+    "README.md": "01616a111f3e997ff7d4a0eea8fae2ac03b3bd8d1f0c8d42fb7728a8411962ae",
     "background.js": "4faf60e12248fab00fae6dd5131ae297e6ba8abf7db0966c6ed0f3f3f7d9df61",
-    "content.js": "78bb36525163838f6d70f2a3740cfc8461c074f844438cd93db32e5860412ca5",
+    "content.js": "67c8392b3ce268545f238c023a161c53b4499d3304f65e6c8a91290e5eadfb35",
     "icon.svg": "d2c2657b7ce04bf6ffe2f6d6080e362184cf09c82852e92c58cba4bc58437a58",
-    "page.css": "745812256ed011737a459389883022bf6118dd72a1234b07f3b58f0904ae047d",
+    "page.css": "dd8ca7146fd5158785f475bcad33a2f59b1f3467b93fbcc24a6b61aef28a45ad",
     "page.html": "1c5e6d0b42d12d361c5aa7fc947afb06dcafc4831ba6515d9e32c2bf66a05b28",
-    "page.js": "e2a9ca052c03e9e198a9305e1c137474ce264ac454351ab17ef1dd397da37afd",
-    "plugin.json": "2d051a929b1cf80f16f2a0292648257cea35466c20ad30df8160c0389d695916",
+    "page.js": "485667907f2cad627f2af1e9489dfd2c8f8da68ff214aeaa3ce1e347c17180ed",
+    "plugin.json": "7f240296521c9bc0d2bc6a8f98bb7396e405546b1bdcc694e26ec5288ec58396",
     "settings.svg": "fb8ed31b6300ab74e03a7d1d69fbd4a73cbdb21f4cc3156936b984e56fe89f52",
     "toggle.svg": "68faa077e762feed4cde1ea2a39949bc82264a291eda1acf28dba49f8fb7d799"
   },
-  "signature": "LdsI9nDJz9oNIseRP05A9aRLtAFqWZJx4pC3P/SXyDW+jwQ8ccXpJwwXTvNXsVBp6zxcU8/3DL7poH4sLF+GBA=="
+  "signature": "FH6PcwTaYQJ0YSn+ZB8cLXYlANyCMwl4yqjKfrKPRKWyzse+j6m+28hVOWUlFzHqeOC1VSn9zmYFle73RJ0nBg=="
 }
